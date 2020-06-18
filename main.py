@@ -1,69 +1,75 @@
 from Crypto.Cipher import AES
 from base64 import b64encode
 from pprint import pprint
+from time import sleep
 import asyncio
 import aiohttp
+import os
 
 _pad = lambda s: s + bytes([AES.block_size - len(s) % AES.block_size]) * (AES.block_size - len(s) % AES.block_size)
 encrypt = lambda message, key, iv: AES.new(key, AES.MODE_CBC, iv).encrypt(message)
 
 ENDPOINT = 'https://mydtu.duytan.edu.vn/Modules/regonline/ajax/RegistrationProcessing.aspx/AddClassProcessing'
+accounts = []
 
-# Retrieving by extract it from cookie in request header
-sessionId = 'olnxxdudnd51jcsiad3z0va9'
+year = '65'      # 2019 - 2020
+semester = '68'  # Học kì Hè
 
-classRegCodes = [     # Mã đăng kí môn
-    'ABC123456789012',
-    'ABC123456789012',
-    'ABC123456789012',
-]
+def addAccount(**kwargs):
+    kwargs.update(year=year, semester=semester)
+    accounts.append(kwargs)
 
-# All the variables below are getting from this following link:
-# https://mydtu.duytan.edu.vn/sites/index.aspx?p=home_registeredall&semesterid=68&yearid=65
-#
-# Inspecting the 'Đăng ký' button to see the year, semester, studentIdNumber and curriculumId in the respective way.
-# 
-# For example:
-# Add_Click('Bạn có muốn Đăng ký Lớp này?',65,67,242XXXXXXXX,'611','AMINHAKEYTEM32NYTES1234567891234','7061737323313233')
-# So this does mean:
-# + year = '65'
-# + semester = '67'
-# + studentIdNumber = '242XXXXXXXX'
-# + curriculumId = '611'
-year = '65'                     # 2019 - 2020
-semester = '68'                 # HK Hè
-studentIdNumber = '242XXXXXXXX' # Mã số sinh viên
-curriculumId = '611'            # 611 - K24TMT
-# You also need to enter the captcha once in the above link
-# Don't try to refreshing the link because it will alter the captcha in the user's session
-captcha = '6969'
-
-async def registerAsync(loop: asyncio, classRegCodes: list) -> list:
-    async def doRegister(session: aiohttp.ClientSession, classRegCode: str) -> tuple:
-        if not classRegCode:
-            return
+async def registerAsync(loop: asyncio, accounts: list) -> list:
+    async def doRegister(session: aiohttp.ClientSession, classRegCode: str, **kwargs) -> tuple:
+        sessionId = kwargs['sessionId']
+        year = kwargs['year']
+        semester = kwargs['semester']
+        studentIdNumber = kwargs['studentIdNumber']
+        curriculumId = kwargs['curriculumId']
+        captcha = kwargs['captcha']
 
         params = _pad(','.join([classRegCode, year, semester, studentIdNumber, curriculumId, captcha]).encode())
 
         encryptedString = encrypt(params, b'AMINHAKEYTEM32NYTES1234567891234', b'7061737323313233')
         encryptedString = b64encode(encryptedString).decode()
 
-        res = await session.post(ENDPOINT, json={
+        res = await session.post(ENDPOINT, cookies={
+            'ASP.NET_SessionId': sessionId
+        }, json={
             'encryptedPara': encryptedString
         })
         res = await res.json()
         if 'd' not in res:
-            return res, classRegCode
+            return res, classRegCode, studentIdNumber
 
-        return res['d'], classRegCode
+        return res['d'], classRegCode, studentIdNumber
 
-    session = aiohttp.ClientSession(cookies={'ASP.NET_SessionId': sessionId})
-    result = await asyncio.gather(*[doRegister(session, classRegCode) for classRegCode in classRegCodes])
+    async def doAccountRegister(session: aiohttp.ClientSession, account: dict) -> list:
+        classRegCodes = account['classRegCodes']
+        return await asyncio.gather(*[doRegister(session, classRegCode, **account) for classRegCode in classRegCodes])
+
+
+    session = aiohttp.ClientSession()
+    result = await asyncio.gather(*[doAccountRegister(session, account) for account in accounts])
     await session.close()
 
     return result
 
 if __name__ == '__main__':
+    addAccount(
+        sessionId='sqydqiq1bptgoklmhw1timms',
+        classRegCodes=['ABC123456789012', 'DEF123456789012', 'GHI123456789012'],
+        studentIdNumber='24123456789',
+        curriculumId='611',
+        captcha='3976'
+    )
+
+    # You can add more addAccount() here
+
     loop = asyncio.get_event_loop()
-    result = loop.run_until_complete(registerAsync(loop, classRegCodes))
-    pprint(result)
+    while True:
+        result = loop.run_until_complete(registerAsync(loop, accounts))
+        pprint(result)
+
+        sleep(5) # Slow it down, don't be intensive!!!
+        os.system('clear') # This shit is need to change depending on the OS
