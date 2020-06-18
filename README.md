@@ -10,7 +10,7 @@
 
 * Python >= 3.7
 
-* OS: Windows, Linux and MacOS (recommend Linux and MacOS for the best ex,periences).
+* OS: Windows, Linux and MacOS (recommend Linux and MacOS for the best experiences).
 
 ## How to use
 
