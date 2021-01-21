@@ -1,5 +1,6 @@
 from typing import List
 from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad as pkcs7_pad
 from base64 import b64encode
 from pprint import pprint
 from time import sleep
@@ -29,18 +30,14 @@ class DTURegister:
         self.captcha = captcha
 
     @staticmethod
-    def _pad(s):
-        return s + bytes([AES.block_size - len(s) % AES.block_size]) * (AES.block_size - len(s) % AES.block_size)
-
-    @staticmethod
-    def encrypt(message, key, iv):
+    def aes_encrypt(iv, key, message):
         return AES.new(key, AES.MODE_CBC, iv).encrypt(message)
 
     async def doRegister(self, session: aiohttp.ClientSession, classRegCode: str, studentIdNumber: str) -> tuple:
-        joinInfo = ','.join([classRegCode, self.year, self.semester, studentIdNumber, self.curriculumId, self.captcha]).encode()
-        params = self._pad(joinInfo)
+        registerSeq = ','.join([classRegCode, self.year, self.semester, studentIdNumber, self.curriculumId, self.captcha]).encode()
+        registerSeq = pkcs7_pad(registerSeq, AES.block_size)
 
-        encryptedString = self.encrypt(params, b'AMINHAKEYTEM32NYTES1234567891234', b'7061737323313233')
+        encryptedString = self.aes_encrypt(b'7061737323313233', b'AMINHAKEYTEM32NYTES1234567891234', registerSeq)
         encryptedString = b64encode(encryptedString).decode()
 
         res = await session.post(DTURegister.ENDPOINT, cookies={
