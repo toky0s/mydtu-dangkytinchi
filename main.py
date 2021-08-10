@@ -1,14 +1,15 @@
 from Crypto.Cipher import AES
-from base64 import b64encode
+from base64 import b64encode as base64_encode
 from pprint import pprint
 from time import sleep
 import asyncio
 import aiohttp
 import os
 
-_pad = lambda s: s + bytes([AES.block_size - len(s) % AES.block_size]) * (AES.block_size - len(s) % AES.block_size)
-encrypt = lambda message, key, iv: AES.new(key, AES.MODE_CBC, iv).encrypt(message)
+pkcs7_padding = lambda s: s + bytes([AES.block_size - len(s) % AES.block_size]) * (AES.block_size - len(s) % AES.block_size)
+AES_encrypt = lambda message, key, iv: AES.new(key, AES.MODE_CBC, iv).encrypt(message)
 
+TEMP_ENDPOINT = 'https://mydtu.duytan.edu.vn/Modules/regonline/ajax/LoadCaptcha.aspx/Temp'
 ENDPOINT = 'https://mydtu.duytan.edu.vn/Modules/regonline/ajax/RegistrationProcessing.aspx/AddClassProcessing'
 accounts = []
 
@@ -28,21 +29,35 @@ async def registerAsync(loop: asyncio, accounts: list) -> list:
         curriculumId = kwargs['curriculumId']
         captcha = kwargs['captcha']
 
-        params = _pad(','.join([classRegCode, year, semester, studentIdNumber, curriculumId, captcha]).encode())
+        params = pkcs7_padding(','.join([classRegCode, year, semester, studentIdNumber, curriculumId, captcha]).encode())
 
-        encryptedString = encrypt(params, b'AMINHAKEYTEM32NYTES1234567891234', b'7061737323313233')
-        encryptedString = b64encode(encryptedString).decode()
+        encryptedString = AES_encrypt(params, b'AMINHAKEYTEM32NYTES1234567891234', b'7061737323313233')
+        encryptedString = base64_encode(encryptedString).decode()
 
-        res = await session.post(ENDPOINT, cookies={
-            'ASP.NET_SessionId': sessionId
-        }, json={
-            'encryptedPara': encryptedString
-        })
-        res = await res.json()
-        if 'd' not in res:
-            return res, classRegCode, studentIdNumber
+        while True:
+            try:
+                # pre-check step
+                res = await session.post(TEMP_ENDPOINT, cookies={
+                    'ASP.NET_SessionId': sessionId
+                }, json={
+                    'termVal': classRegCode
+                })
+                json = await res.json()
+                if 'd' not in json or json['d'] != '1':
+                    return json, classRegCode, studentIdNumber
 
-        return res['d'], classRegCode, studentIdNumber
+                res = await session.post(ENDPOINT, cookies={
+                    'ASP.NET_SessionId': sessionId
+                }, json={
+                    'encryptedPara': encryptedString
+                })
+                json = await res.json()
+                if 'd' not in json:
+                    return json, classRegCode, studentIdNumber
+
+                return json['d'], classRegCode, studentIdNumber
+            except:
+                continue
 
     async def doAccountRegister(session: aiohttp.ClientSession, account: dict) -> list:
         classRegCodes = account['classRegCodes']
